@@ -23,7 +23,14 @@ pub fn qur_home() -> PathBuf {
         return PathBuf::from(p);
     }
     let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/tmp"));
-    home.join("Library/Application Support/Qur")
+    if cfg!(target_os = "macos") {
+        return home.join("Library/Application Support/Qur");
+    }
+    // Linux: $XDG_DATA_HOME/qur (settings, tasks and worktrees live together, as on macOS).
+    match std::env::var_os("XDG_DATA_HOME").filter(|d| !d.is_empty()) {
+        Some(d) => PathBuf::from(d).join("qur"),
+        None => home.join(".local/share/qur"),
+    }
 }
 
 pub fn config_path() -> PathBuf {

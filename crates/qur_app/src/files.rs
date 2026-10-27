@@ -177,6 +177,11 @@ pub fn trim_memory() {
         // SAFETY: a null zone means every zone; a goal of 0 means as much as possible.
         unsafe { malloc_zone_pressure_relief(std::ptr::null_mut(), 0) };
     }
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    // SAFETY: plain glibc call; 0 keeps no extra padding.
+    unsafe {
+        libc::malloc_trim(0);
+    }
 }
 
 /// Where an image that only lives in memory (pasted, or sent by the agent)
@@ -211,6 +216,37 @@ pub fn human_size(n: u64) -> String {
         1000..1_000_000 => format!("{:.1} KB", n as f64 / 1e3),
         1_000_000..1_000_000_000 => format!("{:.1} MB", n as f64 / 1e6),
         _ => format!("{:.1} GB", n as f64 / 1e9),
+    }
+}
+
+/// Open a file, folder or URL the way the desktop does: `open` on macOS,
+/// `xdg-open` elsewhere. A leading `-R` selects the item in the file manager
+/// (on Linux through the FileManager1 D-Bus service, else its folder opens).
+pub fn system_open<S: AsRef<std::ffi::OsStr>>(args: &[S]) -> std::io::Result<std::process::Child> {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("/usr/bin/open").args(args).spawn()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let args: Vec<&std::ffi::OsStr> = args.iter().map(|a| a.as_ref()).collect();
+        let Some(target) = args.last() else { return Err(std::io::Error::other("nothing to open")) };
+        if args.first().is_some_and(|a| *a == "-R") {
+            let path = std::path::absolute(Path::new(target)).unwrap_or_else(|_| Path::new(target).to_path_buf());
+            let uri = format!("file://{}", path.display());
+            let shown = std::process::Command::new("gdbus")
+                .args(["call", "--session", "--dest", "org.freedesktop.FileManager1", "--object-path", "/org/freedesktop/FileManager1"])
+                .args(["--method", "org.freedesktop.FileManager1.ShowItems", &format!("['{uri}']"), ""])
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn();
+            if shown.is_ok() {
+                return shown;
+            }
+            let dir = path.parent().map(Path::to_path_buf).unwrap_or(path);
+            return std::process::Command::new("xdg-open").arg(dir).spawn();
+        }
+        std::process::Command::new("xdg-open").arg(target).spawn()
     }
 }
 

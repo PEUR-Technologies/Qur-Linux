@@ -347,7 +347,7 @@ impl Workspace {
                     PanelEvent::Activity => this.terminal_activity(window, cx),
                     // Cmd-click in a terminal (M5): the user asked for it.
                     PanelEvent::OpenUrl(url) => {
-                        if let Err(e) = std::process::Command::new("/usr/bin/open").arg(url).spawn() {
+                        if let Err(e) = crate::files::system_open(&[url.as_str()]) {
                             this.flash(format!("Couldn't open {url}: {e}"), cx);
                         }
                     }
@@ -788,6 +788,19 @@ impl Render for Workspace {
             // A click anywhere in Qur (clicks in a page go to the page, not
             // here) takes the keyboard back from the browsers.
             .capture_any_mouse_down(cx.listener(|this, _, _, cx| this.release_browser_focus(cx)))
+            // Linux draws its own window frame (client-side decorations):
+            // a press on the outer few pixels resizes the window.
+            .when(cfg!(target_os = "linux"), |d| {
+                d.capture_any_mouse_down(|ev, window, cx| {
+                    if ev.button != gpui::MouseButton::Left {
+                        return;
+                    }
+                    if let Some(edge) = linux_resize_edge(ev.position, window) {
+                        cx.stop_propagation();
+                        window.start_window_resize(edge);
+                    }
+                })
+            })
             .size_full()
             .relative()
             .flex()
@@ -1057,4 +1070,29 @@ fn ask(window: &mut Window, level: PromptLevel, message: &str, detail: Option<&s
         }
     }
     window.prompt(level, message, detail, answers, cx)
+}
+
+/// The window edge under `pos`, when the window is free to resize there
+/// (client-side decorations on Linux, not maximized, tiled or full screen).
+fn linux_resize_edge(pos: gpui::Point<Pixels>, window: &Window) -> Option<gpui::ResizeEdge> {
+    use gpui::ResizeEdge as E;
+    let gpui::Decorations::Client { tiling } = window.window_decorations() else { return None };
+    if window.is_maximized() || window.is_fullscreen() || tiling.top || tiling.left || tiling.right || tiling.bottom {
+        return None;
+    }
+    let edge = px(6.);
+    let size = window.viewport_size();
+    let (top, bottom) = (pos.y < edge, pos.y > size.height - edge);
+    let (left, right) = (pos.x < edge, pos.x > size.width - edge);
+    Some(match (top, bottom, left, right) {
+        (true, _, true, _) => E::TopLeft,
+        (true, _, _, true) => E::TopRight,
+        (_, true, true, _) => E::BottomLeft,
+        (_, true, _, true) => E::BottomRight,
+        (true, ..) => E::Top,
+        (_, true, ..) => E::Bottom,
+        (_, _, true, _) => E::Left,
+        (_, _, _, true) => E::Right,
+        _ => return None,
+    })
 }

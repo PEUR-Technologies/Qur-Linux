@@ -311,9 +311,36 @@ impl Debouncer {
         if matches!(ev.kind, EventKind::Access(_)) {
             return;
         }
+        // inotify only watches a new folder once notify sees it, so files
+        // written into it right away go unreported: list what's there already.
+        #[cfg(target_os = "linux")]
+        let created_dirs: Vec<PathBuf> =
+            if matches!(ev.kind, EventKind::Create(_)) { ev.paths.iter().filter(|p| p.is_dir()).cloned().collect() } else { Vec::new() };
         for p in ev.paths {
             if let Some(p) = self.filter.accept(p) {
                 self.pending.insert(p, now);
+            }
+        }
+        #[cfg(target_os = "linux")]
+        for dir in created_dirs {
+            let mut stack = vec![dir];
+            let mut budget = 10_000usize;
+            while let Some(d) = stack.pop() {
+                let Ok(entries) = std::fs::read_dir(&d) else { continue };
+                for e in entries.flatten() {
+                    if budget == 0 {
+                        return;
+                    }
+                    budget -= 1;
+                    let is_dir = e.file_type().is_ok_and(|t| t.is_dir());
+                    // Ignored folders (node_modules, target) aren't entered.
+                    if let Some(p) = self.filter.accept(e.path()) {
+                        if is_dir {
+                            stack.push(p.clone());
+                        }
+                        self.pending.insert(p, now);
+                    }
+                }
             }
         }
     }

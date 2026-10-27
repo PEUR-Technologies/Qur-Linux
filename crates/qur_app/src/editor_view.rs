@@ -2001,11 +2001,19 @@ impl<B: Clone> OpenFiles<B> {
 /// short, and a syntax tree is ~100k small allocations: without this, a
 /// closed 10k-line file stays ~12 MB in the footprint after it's freed.
 pub fn return_free_pages() {
-    unsafe extern "C" {
-        fn malloc_zone_pressure_relief(zone: *mut libc::c_void, goal: usize) -> usize;
+    #[cfg(target_os = "macos")]
+    {
+        unsafe extern "C" {
+            fn malloc_zone_pressure_relief(zone: *mut libc::c_void, goal: usize) -> usize;
+        }
+        // No zone: all of them; goal 0: as much as possible.
+        unsafe { malloc_zone_pressure_relief(std::ptr::null_mut(), 0) };
     }
-    // No zone: all of them; goal 0: as much as possible.
-    unsafe { malloc_zone_pressure_relief(std::ptr::null_mut(), 0) };
+    // glibc keeps freed pages too; malloc_trim hands them back.
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    unsafe {
+        libc::malloc_trim(0);
+    }
 }
 
 impl Buffers {

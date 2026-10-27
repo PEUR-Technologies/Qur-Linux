@@ -13,10 +13,17 @@ impl Workspace {
             let _ = c.wait();
             self.flash("Keep Awake off", cx);
         } else {
-            match std::process::Command::new("/usr/bin/caffeinate").args(["-dims", "-w", &std::process::id().to_string()]).spawn() {
+            #[cfg(target_os = "macos")]
+            let keep_awake = std::process::Command::new("/usr/bin/caffeinate").args(["-dims", "-w", &std::process::id().to_string()]).spawn();
+            // Linux: hold a logind inhibitor until Qur exits (or this is turned off).
+            #[cfg(not(target_os = "macos"))]
+            let keep_awake = std::process::Command::new("systemd-inhibit")
+                .args(["--what=idle:sleep", "--who=Qur", "--why=Keep Awake", "tail", &format!("--pid={}", std::process::id()), "-f", "/dev/null"])
+                .spawn();
+            match keep_awake {
                 Ok(c) => {
                     self.caffeinate = Some(c);
-                    self.flash("Keep Awake on: the Mac won't sleep while Qur is open", cx);
+                    self.flash(if cfg!(target_os = "macos") { "Keep Awake on: the Mac won't sleep while Qur is open" } else { "Keep Awake on: the computer won't sleep while Qur is open" }, cx);
                 }
                 Err(e) => self.flash(format!("Couldn't start caffeinate: {e}"), cx),
             }
@@ -168,7 +175,7 @@ impl Workspace {
     pub(super) fn show_logs(&mut self, _: &qur::ShowLogs, _: &mut Window, cx: &mut Context<Self>) {
         let dir = crate::log_dir();
         std::fs::create_dir_all(&dir).ok();
-        if let Err(e) = std::process::Command::new("/usr/bin/open").arg(&dir).spawn() {
+        if let Err(e) = crate::files::system_open(&[&dir]) {
             self.flash(format!("Couldn't open {}: {e}", dir.display()), cx);
         }
     }

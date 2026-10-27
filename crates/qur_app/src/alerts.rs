@@ -1,4 +1,4 @@
-//! Alerts (handoff section 11, M6): a macOS notification, the Dock badge and
+//! Alerts (handoff section 11, M6): a system notification, the Dock badge (macOS) and
 //! a soft chime when an agent finishes a turn, errors, or needs approval
 //! while you're not looking at it. Notifications go through GPUI, which skips
 //! them when Qur isn't running from an app bundle (dev builds).
@@ -86,6 +86,26 @@ fn chime() {
                 s.play();
             }
         });
+    }
+    // Linux: the chime is written out once and played by the desktop's sound
+    // server (PipeWire, PulseAudio, or ALSA as a last resort).
+    #[cfg(not(target_os = "macos"))]
+    {
+        let path = std::env::temp_dir().join(format!("qur-chime-{}.wav", std::process::id()));
+        if !path.exists() && std::fs::write(&path, CHIME).is_err() {
+            return;
+        }
+        for player in ["pw-play", "paplay", "aplay"] {
+            let spawned = std::process::Command::new(player)
+                .arg(&path)
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn();
+            if let Ok(mut child) = spawned {
+                std::thread::spawn(move || child.wait());
+                return;
+            }
+        }
     }
 }
 

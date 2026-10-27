@@ -64,12 +64,14 @@ pub fn mb(bytes: u64) -> String {
 }
 
 /// A process's physical footprint, or None if it's gone or not this user's.
+#[cfg(target_os = "macos")]
 pub fn footprint(pid: i32) -> Option<u64> {
     let mut info: libc::rusage_info_v4 = unsafe { std::mem::zeroed() };
     let got = unsafe { libc::proc_pid_rusage(pid, libc::RUSAGE_INFO_V4, (&raw mut info).cast()) };
     (got == 0).then_some(info.ri_phys_footprint)
 }
 
+#[cfg(target_os = "macos")]
 fn child_pids(pid: i32) -> Vec<i32> {
     let mut buf = vec![0i32; 1024];
     let n = unsafe { libc::proc_listchildpids(pid, buf.as_mut_ptr().cast(), (buf.len() * 4) as i32) };
@@ -94,6 +96,7 @@ fn subtree(pid: i32) -> Vec<i32> {
 }
 
 /// The kernel's name for a process ("zsh", "node"), up to 32 characters.
+#[cfg(target_os = "macos")]
 pub fn name(pid: i32) -> Option<String> {
     let mut buf = [0u8; 256];
     let n = unsafe { libc::proc_name(pid, buf.as_mut_ptr().cast(), buf.len() as u32) };
@@ -101,6 +104,7 @@ pub fn name(pid: i32) -> Option<String> {
 }
 
 /// A process's arguments (KERN_PROCARGS2), for naming script runners.
+#[cfg(target_os = "macos")]
 fn args(pid: i32) -> Vec<String> {
     let mut mib = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid];
     let mut size: libc::size_t = 0;
@@ -119,6 +123,7 @@ fn args(pid: i32) -> Vec<String> {
 
 /// KERN_PROCARGS2's layout: argc (i32), the executable path, NUL padding,
 /// then argc NUL-terminated arguments (then the environment).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn parse_procargs(buf: &[u8]) -> Vec<String> {
     let Some(argc) = buf.get(..4).map(|b| i32::from_ne_bytes([b[0], b[1], b[2], b[3]])) else { return Vec::new() };
     let rest = &buf[4..];
@@ -162,11 +167,58 @@ pub fn report(pid: i32, labels: &HashMap<i32, String>) -> Report {
 
 /// Every running Qur except this process (for `qur doctor`).
 pub fn other_qurs() -> Vec<i32> {
+    let me = std::process::id() as i32;
+    all_pids().into_iter().filter(|&p| p > 0 && p != me && name(p).as_deref() == Some("qur")).collect()
+}
+
+/// Every process id on the system.
+#[cfg(target_os = "macos")]
+pub fn all_pids() -> Vec<i32> {
     let mut buf = vec![0i32; 8192];
     let n = unsafe { libc::proc_listallpids(buf.as_mut_ptr().cast(), (buf.len() * 4) as i32) };
     buf.truncate(n.max(0) as usize);
-    let me = std::process::id() as i32;
-    buf.into_iter().filter(|&p| p > 0 && p != me && name(p).as_deref() == Some("qur")).collect()
+    buf.retain(|&p| p > 0);
+    buf
+}
+
+// Linux: the same answers from /proc. "Footprint" is resident plus swapped memory.
+
+#[cfg(not(target_os = "macos"))]
+pub fn all_pids() -> Vec<i32> {
+    let Ok(dir) = std::fs::read_dir("/proc") else { return Vec::new() };
+    dir.filter_map(|e| e.ok()?.file_name().to_str()?.parse().ok()).collect()
+}
+
+/// /proc/<pid>/stat's fields after the command name: state, ppid, pgrp, session, tty, tpgid, ….
+#[cfg(not(target_os = "macos"))]
+pub fn stat_fields(pid: i32) -> Option<Vec<i64>> {
+    let text = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    let rest = &text[text.rfind(')')? + 1..];
+    Some(rest.split_whitespace().skip(1).take(6).map(|f| f.parse().unwrap_or(0)).collect())
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn footprint(pid: i32) -> Option<u64> {
+    let text = std::fs::read_to_string(format!("/proc/{pid}/status")).ok()?;
+    let kb = |key: &str| text.lines().find_map(|l| l.strip_prefix(key)).and_then(|v| v.split_whitespace().next()?.parse::<u64>().ok());
+    Some((kb("VmRSS:")? + kb("VmSwap:").unwrap_or(0)) * 1024)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn child_pids(pid: i32) -> Vec<i32> {
+    all_pids().into_iter().filter(|&p| stat_fields(p).is_some_and(|f| f.first() == Some(&(pid as i64)))).collect()
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn name(pid: i32) -> Option<String> {
+    let n = std::fs::read_to_string(format!("/proc/{pid}/comm")).ok()?;
+    Some(n.trim_end().to_string()).filter(|n| !n.is_empty())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn args(pid: i32) -> Vec<String> {
+    let buf = std::fs::read(format!("/proc/{pid}/cmdline")).unwrap_or_default();
+    buf.split(|&b| b == 0).filter(|a| !a.is_empty()).map(|a| String::from_utf8_lossy(a).into_owned()).collect()
 }
 
 #[cfg(test)]

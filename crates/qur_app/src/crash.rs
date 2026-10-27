@@ -278,7 +278,15 @@ fn encode(s: &str) -> String {
         .collect()
 }
 
+/// "Ubuntu 26.04 LTS", from /etc/os-release.
+#[cfg(not(target_os = "macos"))]
+pub fn os_version() -> String {
+    let text = std::fs::read_to_string("/etc/os-release").unwrap_or_default();
+    text.lines().find_map(|l| l.strip_prefix("PRETTY_NAME=")).map(|v| v.trim_matches('"').to_string()).unwrap_or_else(|| "Linux".into())
+}
+
 /// "macOS 26.1 (25B78)", from sysctl (no process spawned).
+#[cfg(target_os = "macos")]
 pub fn os_version() -> String {
     fn sysctl(name: &std::ffi::CStr) -> Option<String> {
         let mut buf = [0u8; 64];

@@ -1,7 +1,7 @@
 //! Embedded system WKWebView for Qur's Browser view, with an element-inspect mode.
 //!
-//! macOS only. On other platforms this crate builds as an empty shim: the event types
-//! and pure helpers exist, `Browser` does not.
+//! macOS embeds WKWebView. On Linux, `Browser` has the same API but opens pages in the
+//! default browser (see `linux.rs`); elsewhere only the event types and helpers exist.
 //!
 //! Everything here is main-thread only (AppKit). Events leave through an unbounded
 //! `futures` channel; there is no async runtime.
@@ -19,3 +19,7 @@ pub type Events = futures::channel::mpsc::UnboundedReceiver<BrowserEvent>;
 mod mac;
 #[cfg(target_os = "macos")]
 pub use mac::Browser;
+#[cfg(target_os = "linux")]
+mod linux;
+#[cfg(target_os = "linux")]
+pub use linux::{Browser, NO_EMBED};

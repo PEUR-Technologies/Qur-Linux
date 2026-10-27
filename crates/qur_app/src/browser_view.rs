@@ -135,11 +135,21 @@ impl BrowserPane {
         if self.web.is_some() {
             return;
         }
-        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-        let Ok(handle) = window.window_handle() else { return };
-        let RawWindowHandle::AppKit(h) = handle.as_raw() else { return };
-        // SAFETY: GPUI's window outlives this pane; the view pointer is valid on the main thread.
-        let (web, mut events) = unsafe { Browser::new(h.ns_view.as_ptr()) };
+        #[cfg(target_os = "macos")]
+        let (web, mut events) = {
+            use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+            let Ok(handle) = window.window_handle() else { return };
+            let RawWindowHandle::AppKit(h) = handle.as_raw() else { return };
+            // SAFETY: GPUI's window outlives this pane; the view pointer is valid on the main thread.
+            unsafe { Browser::new(h.ns_view.as_ptr()) }
+        };
+        // Linux: no embedded view; pages open in the default browser.
+        #[cfg(not(target_os = "macos"))]
+        let (web, mut events) = {
+            let _ = window;
+            // SAFETY: the Linux Browser keeps no pointer.
+            unsafe { Browser::new(std::ptr::null_mut()) }
+        };
         if let Some(home) = self.home.clone() {
             web.load(&home);
         }
@@ -434,8 +444,12 @@ impl Render for BrowserPane {
                         .text_color(look.c(ui.text_muted))
                         .child(match (&self.error, &self.home) {
                             (Some(e), _) => e.clone(),
+                            #[cfg(target_os = "macos")]
                             (None, None) => "Type your dev server's address above (e.g. localhost:3000), then Inspect to point at things.".into(),
+                            #[cfg(target_os = "macos")]
                             (None, Some(_)) => "Loading…".into(),
+                            #[cfg(not(target_os = "macos"))]
+                            (None, _) => format!("Type your dev server's address above (e.g. localhost:3000). {}", qur_browser::NO_EMBED),
                         }),
                 )
             });

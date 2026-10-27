@@ -68,7 +68,7 @@ impl Workspace {
             println!("OPEN {}", args.iter().map(|a| a.to_string_lossy()).collect::<Vec<_>>().join(" "));
             return;
         }
-        if let Err(e) = std::process::Command::new("/usr/bin/open").args(args).spawn() {
+        if let Err(e) = crate::files::system_open(args) {
             self.flash(format!("Couldn't open {}: {e}", args.last().map(|a| a.to_string_lossy()).unwrap_or_default()), cx);
         }
     }

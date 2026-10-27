@@ -277,10 +277,7 @@ fn restore_selection<T: EventListener>(t: &mut Term<T>, (sel, hist): (Selection,
 
 /// Every process in the session the PTY child leads (setsid: sid == child pid).
 fn session_pids(sid: i32) -> Vec<i32> {
-    let mut buf = vec![0i32; 8192];
-    let n = unsafe { libc::proc_listallpids(buf.as_mut_ptr().cast(), (buf.len() * 4) as i32) };
-    buf.truncate(n.max(0) as usize);
-    buf.into_iter().filter(|&p| p > 0 && unsafe { libc::getsid(p) } == sid).collect()
+    crate::mem::all_pids().into_iter().filter(|&p| p > 0 && unsafe { libc::getsid(p) } == sid).collect()
 }
 
 /// SIGHUP the whole session, then SIGKILL whatever is left after `grace`.
@@ -2020,6 +2017,18 @@ fn free_label(base: &str, taken: &[&str]) -> String {
 
 /// The program in the foreground of the shell `pid`'s terminal (its name,
 /// like `cargo`), or None while the shell itself is at its prompt.
+#[cfg(not(target_os = "macos"))]
+fn foreground_name(pid: i32) -> Option<String> {
+    // stat fields from ppid: [ppid, pgrp, session, tty, tpgid, ...]
+    let f = crate::mem::stat_fields(pid)?;
+    let (pgrp, fg) = (*f.get(1)?, *f.get(4)?);
+    if fg <= 0 || fg == pgrp {
+        return None;
+    }
+    crate::mem::name(fg as i32)
+}
+
+#[cfg(target_os = "macos")]
 fn foreground_name(pid: i32) -> Option<String> {
     let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
     let size = std::mem::size_of::<libc::proc_bsdinfo>() as i32;

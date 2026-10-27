@@ -547,9 +547,148 @@ pub fn palette_commands() -> impl Iterator<Item = &'static Cmd> {
     COMMANDS.iter().filter(|c| !matches!(c.category, "Editor" | "Input"))
 }
 
-fn binding(c: &Cmd, keys: &str, cx: &App) -> Result<KeyBinding, String> {
-    let predicate = c.context.map(|ctx| gpui::KeyBindingContextPredicate::parse(ctx).unwrap().into());
-    KeyBinding::load(keys, (c.action)(), predicate, false, None, cx).map_err(|e| e.to_string())
+fn binding(c: &Cmd, keys: &str, cx: &App) -> Result<Vec<KeyBinding>, String> {
+    let load = |keys: &str, ctx: Option<&str>| {
+        let predicate = ctx.map(|ctx| gpui::KeyBindingContextPredicate::parse(ctx).unwrap().into());
+        KeyBinding::load(keys, (c.action)(), predicate, false, None, cx).map_err(|e| e.to_string())
+    };
+    if !cfg!(target_os = "macos") {
+        return linux_bindings(keys, c.context).into_iter().map(|(k, ctx)| load(&k, ctx.as_deref())).collect();
+    }
+    Ok(vec![load(keys, c.context)?])
+}
+
+// ---------------------------------------------------------------------------
+// Linux keys. Commands and keymap.toml are written with macOS keys; off macOS
+// they are translated: Cmd becomes Ctrl, the Mac's own Ctrl shortcuts move to
+// Alt so they don't collide, and text navigation follows Linux habits
+// (Home/End, Ctrl+arrows by word). A terminal needs Ctrl for itself, so there
+// Cmd becomes Ctrl+Shift, as in other Linux terminals.
+// ---------------------------------------------------------------------------
+
+/// Contexts where text is edited: navigation keys follow Linux habits there.
+fn text_context(ctx: Option<&str>) -> bool {
+    ctx.is_some_and(|c| c == "Editor" || c == "TextInput" || c == "Terminal")
+}
+
+/// Does a binding in `ctx` match while a terminal has focus?
+fn reaches_terminal(ctx: Option<&str>) -> bool {
+    match ctx {
+        None => true,
+        Some(c) => c.contains("Terminal") && !c.contains("!Terminal"),
+    }
+}
+
+fn split_stroke(stroke: &str) -> (Vec<&str>, &str) {
+    if let Some(mods) = stroke.strip_suffix("--") {
+        let mods = mods.split('-').filter(|m| !m.is_empty()).collect();
+        return (mods, "-");
+    }
+    let mut parts: Vec<&str> = stroke.split('-').collect();
+    let key = parts.pop().unwrap_or("");
+    (parts, key)
+}
+
+fn join_stroke(mods: &[&str], key: &str) -> String {
+    let mut out = String::new();
+    for m in ["ctrl", "alt", "shift", "cmd"] {
+        if mods.contains(&m) {
+            out.push_str(m);
+            out.push('-');
+        }
+    }
+    out.push_str(key);
+    out
+}
+
+/// One macOS keystroke as pressed on Linux.
+fn linux_stroke(stroke: &str, text: bool) -> String {
+    let (mods, key) = split_stroke(stroke);
+    let has = |m: &str| mods.contains(&m);
+    let arrow = matches!(key, "left" | "right" | "up" | "down");
+    if text && arrow && has("cmd") && !has("ctrl") && !has("alt") {
+        let shift = if has("shift") { "shift-" } else { "" };
+        return match key {
+            "left" => format!("{shift}home"),
+            "right" => format!("{shift}end"),
+            "up" => format!("ctrl-{shift}home"),
+            _ => format!("ctrl-{shift}end"),
+        };
+    }
+    if text && has("alt") && !has("cmd") && !has("ctrl") && matches!(key, "left" | "right" | "backspace" | "delete") {
+        let rest: Vec<&str> = mods.iter().copied().filter(|m| *m != "alt").chain(["ctrl"]).collect();
+        return join_stroke(&rest, key);
+    }
+    if text && key == "backspace" && has("cmd") && mods.len() == 1 {
+        return "ctrl-shift-backspace".into();
+    }
+    if has("cmd") && has("ctrl") {
+        if key == "f" && mods.len() == 2 {
+            return "f11".into();
+        }
+        // Ctrl+Cmd(+Shift)+X -> Ctrl+Alt(+Shift)+X; Expand/Shrink Selection -> Alt+Shift+arrows.
+        let rest: Vec<&str> = mods.iter().copied().filter(|m| *m != "cmd").chain(["alt"]).collect();
+        if has("shift") && arrow {
+            return join_stroke(&["alt", "shift"], key);
+        }
+        return join_stroke(&rest, key);
+    }
+    if has("cmd") {
+        if !text && arrow && (key == "left" || key == "right") && mods.len() == 1 {
+            return format!("alt-{key}"); // Browser Back / Forward
+        }
+        let rest: Vec<&str> = mods.iter().copied().map(|m| if m == "cmd" { "ctrl" } else { m }).collect();
+        return join_stroke(&rest, key);
+    }
+    if has("ctrl") && !has("alt") && !matches!(key, "tab" | "`") {
+        let rest: Vec<&str> = mods.iter().copied().map(|m| if m == "ctrl" { "alt" } else { m }).collect();
+        return join_stroke(&rest, key);
+    }
+    stroke.to_string()
+}
+
+/// `cmd-shift-p` -> `ctrl-shift-p`; chords translate stroke by stroke.
+pub fn linux_keys(keys: &str, ctx: Option<&str>) -> String {
+    keys.split(' ').filter(|s| !s.is_empty()).map(|s| linux_stroke(s, text_context(ctx))).collect::<Vec<_>>().join(" ")
+}
+
+/// Keys the translated defaults already give Ctrl+Shift outside text views:
+/// a terminal's Ctrl+Shift form of a Cmd key never takes one of these.
+fn global_shift_keys() -> &'static std::collections::HashSet<String> {
+    static KEYS: std::sync::OnceLock<std::collections::HashSet<String>> = std::sync::OnceLock::new();
+    KEYS.get_or_init(|| {
+        COMMANDS
+            .iter()
+            .filter(|c| reaches_terminal(c.context))
+            .flat_map(|c| c.keys.split('|'))
+            .filter(|k| k.contains("cmd-shift-") || k.contains("shift-cmd-"))
+            .map(|k| linux_keys(k, None))
+            .collect()
+    })
+}
+
+/// The Linux bindings for one macOS key string in `ctx`: (keys, context).
+fn linux_bindings(keys: &str, ctx: Option<&str>) -> Vec<(String, Option<String>)> {
+    let plain = linux_keys(keys, ctx);
+    let steals = |k: &str| k.split(' ').any(|s| s.starts_with("ctrl-") && !s.contains("shift") && !s.contains("alt"));
+    let had_cmd = keys.contains("cmd");
+    if !had_cmd || !reaches_terminal(ctx) || !steals(&plain) {
+        return vec![(plain, ctx.map(str::to_string))];
+    }
+    let shifted =
+        plain.split(' ').map(|s| if s.starts_with("ctrl-") && !s.contains("shift") { s.replacen("ctrl-", "ctrl-shift-", 1) } else { s.to_string() }).collect::<Vec<_>>().join(" ");
+    let mut out = Vec::new();
+    match ctx {
+        // Global: plain Ctrl outside terminals, Ctrl+Shift inside them.
+        None => {
+            out.push((plain, Some("!Terminal".to_string())));
+            if !global_shift_keys().contains(&shifted) {
+                out.push((shifted, Some("Terminal".to_string())));
+            }
+        }
+        Some(c) => out.push((shifted, Some(c.to_string()))),
+    }
+    out
 }
 
 /// The command keymap.toml means by `name`: an action name
@@ -611,19 +750,29 @@ pub fn bind_keys(cx: &mut App) {
         for keys in c.keys().split('|').filter(|k| !k.is_empty()) {
             // Defaults always load; user keys were checked by `reload_keymap`.
             if let Ok(b) = binding(c, keys, cx) {
-                bindings.push(b);
+                bindings.extend(b);
             }
         }
     }
     const SESSION_KEYS: [&str; 9] = ["ctrl-1", "ctrl-2", "ctrl-3", "ctrl-4", "ctrl-5", "ctrl-6", "ctrl-7", "ctrl-8", "ctrl-9"];
     for (index, keys) in SESSION_KEYS.iter().enumerate() {
-        bindings.push(KeyBinding::new(keys, qur::SelectSession { index }, Some("!Terminal")));
+        if cfg!(target_os = "macos") {
+            bindings.push(KeyBinding::new(keys, qur::SelectSession { index }, Some("!Terminal")));
+        } else {
+            let predicate = gpui::KeyBindingContextPredicate::parse("!Terminal").ok().map(Into::into);
+            if let Ok(b) = KeyBinding::load(&linux_keys(keys, None), Box::new(qur::SelectSession { index }), predicate, false, None, cx) {
+                bindings.push(b);
+            }
+        }
     }
     cx.bind_keys(bindings);
 }
 
 /// `cmd-shift-p` -> `⇧⌘P` (macOS order: ⌃⌥⇧⌘).
 pub fn display_keys(keys: &str) -> String {
+    if !cfg!(target_os = "macos") {
+        return linux_display(&linux_keys(keys, None));
+    }
     keys.split(' ')
         .map(|stroke| {
             let parts: Vec<&str> = stroke.split('-').collect();
@@ -652,6 +801,40 @@ pub fn display_keys(keys: &str) -> String {
                 "pagedown" => "PgDn".into(),
                 "home" => "Home".into(),
                 "end" => "End".into(),
+                k => k.to_uppercase(),
+            });
+            out
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// `ctrl-shift-p` -> `Ctrl+Shift+P`.
+fn linux_display(keys: &str) -> String {
+    keys.split(' ')
+        .map(|stroke| {
+            let (mods, key) = split_stroke(stroke);
+            let mut out = String::new();
+            for (m, name) in [("ctrl", "Ctrl+"), ("alt", "Alt+"), ("shift", "Shift+"), ("cmd", "Super+")] {
+                if mods.contains(&m) {
+                    out.push_str(name);
+                }
+            }
+            out.push_str(&match key {
+                "enter" => "Enter".into(),
+                "backspace" => "Backspace".into(),
+                "delete" => "Del".into(),
+                "escape" => "Esc".into(),
+                "left" => "←".into(),
+                "right" => "→".into(),
+                "up" => "↑".into(),
+                "down" => "↓".into(),
+                "tab" => "Tab".into(),
+                "pageup" => "PgUp".into(),
+                "pagedown" => "PgDn".into(),
+                "home" => "Home".into(),
+                "end" => "End".into(),
+                "space" => "Space".into(),
                 k => k.to_uppercase(),
             });
             out
@@ -1050,5 +1233,35 @@ mod tests {
         assert_eq!(bound("cmd-alt-c"), ["editor::ToggleCase"]);
         assert_eq!(COMMANDS[resolve("qur::RevealInFinder").unwrap()].keys(), "");
         assert_eq!(COMMANDS[resolve("qur::CopyPath").unwrap()].keys(), "");
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn linux_keys_translate_mac_shortcuts() {
+        assert_eq!(linux_keys("cmd-shift-p", None), "ctrl-shift-p");
+        assert_eq!(linux_keys("cmd-k cmd-t", None), "ctrl-k ctrl-t");
+        assert_eq!(linux_keys("cmd-left", E), "home");
+        assert_eq!(linux_keys("cmd-shift-down", E), "ctrl-shift-end");
+        assert_eq!(linux_keys("alt-left", E), "ctrl-left");
+        assert_eq!(linux_keys("alt-shift-right", I), "ctrl-shift-right");
+        assert_eq!(linux_keys("cmd-left", B), "alt-left");
+        assert_eq!(linux_keys("ctrl-cmd-f", None), "f11");
+        assert_eq!(linux_keys("ctrl-cmd-z", None), "ctrl-alt-z");
+        assert_eq!(linux_keys("ctrl-shift-cmd-right", E), "alt-shift-right");
+        assert_eq!(linux_keys("ctrl-t", None), "alt-t");
+        assert_eq!(linux_keys("ctrl-tab", NT), "ctrl-tab");
+        assert_eq!(linux_keys("ctrl--", NT), "alt--");
+        assert_eq!(linux_keys("cmd--", None), "ctrl--");
+        assert_eq!(linux_keys("ctrl-alt-down", None), "ctrl-alt-down");
+        // Global Cmd keys: plain Ctrl outside terminals, Ctrl+Shift inside.
+        assert_eq!(
+            linux_bindings("cmd-b", None),
+            [("ctrl-b".to_string(), Some("!Terminal".to_string())), ("ctrl-shift-b".to_string(), Some("Terminal".to_string()))]
+        );
+        // ...unless that Ctrl+Shift key is already global (Cmd+Shift+P, the palette).
+        assert_eq!(linux_bindings("cmd-p", None), [("ctrl-p".to_string(), Some("!Terminal".to_string()))]);
+        assert_eq!(linux_bindings("cmd-k", T), [("ctrl-shift-k".to_string(), Some("Terminal".to_string()))]);
+        assert_eq!(linux_bindings("cmd-s", E), [("ctrl-s".to_string(), Some("Editor".to_string()))]);
+        assert_eq!(linux_display("ctrl-shift-p"), "Ctrl+Shift+P");
     }
 }

@@ -274,6 +274,13 @@ fn open_window(root: Option<PathBuf>, cx: &mut App) -> WindowHandle<Workspace> {
                     traffic_light_position: Some(point(px(9.), px(9.))),
                 }),
                 app_owns_titlebar_drag: true,
+                // Linux: Qur draws its own bar and lights, so ask for client-side
+                // decorations (no second title bar from the compositor).
+                #[cfg(target_os = "linux")]
+                window_decorations: Some(gpui::WindowDecorations::Client),
+                // Matches qur.desktop (StartupWMClass), so docks show Qur's icon.
+                #[cfg(target_os = "linux")]
+                app_id: Some("qur".into()),
                 // Keep agent activity drawing while Qur is unfocused (M0
                 // finding: GPUI's default throttle stalls inactive windows).
                 inactive_frame_interval: if bench { None } else { Some(std::time::Duration::from_millis(16)) },
@@ -385,7 +392,14 @@ fn main() {
 }
 
 pub fn log_dir() -> PathBuf {
-    std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default().join("Library/Logs/Qur")
+    let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+    if cfg!(target_os = "macos") {
+        return home.join("Library/Logs/Qur");
+    }
+    match std::env::var_os("XDG_STATE_HOME").filter(|d| !d.is_empty()) {
+        Some(d) => PathBuf::from(d).join("qur"),
+        None => home.join(".local/state/qur"),
+    }
 }
 
 /// Append a line to qur.log (kept under 1 MB: it starts over when bigger).

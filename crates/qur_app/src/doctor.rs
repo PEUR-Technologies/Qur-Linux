@@ -222,6 +222,14 @@ fn npm_package_version(bin: &Path) -> Option<String> {
     })
 }
 
+#[cfg(not(target_os = "macos"))]
+fn macos() -> Check {
+    let text = std::fs::read_to_string("/etc/os-release").unwrap_or_default();
+    let name = text.lines().find_map(|l| l.strip_prefix("PRETTY_NAME=")).map(|v| v.trim_matches('"').to_string());
+    check(Level::Ok, "Linux", name.unwrap_or_else(|| "unknown distribution".into()))
+}
+
+#[cfg(target_os = "macos")]
 fn macos() -> Check {
     let out = std::process::Command::new("/usr/bin/sw_vers").arg("-productVersion").output();
     let v = out.ok().map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).unwrap_or_default();

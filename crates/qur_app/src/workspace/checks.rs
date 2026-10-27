@@ -171,7 +171,7 @@ impl Workspace {
 
     pub(super) fn reveal_worktree(&mut self, _: &qur::RevealWorktree, _: &mut Window, cx: &mut Context<Self>) {
         if let Some((_, wt, _)) = self.selected_worktree(cx) {
-            let _ = std::process::Command::new("open").arg(&wt).spawn();
+            let _ = crate::files::system_open(&[&wt]);
         }
     }
 

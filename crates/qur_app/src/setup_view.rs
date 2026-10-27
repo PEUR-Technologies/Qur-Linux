@@ -910,7 +910,7 @@ impl SetupView {
         let files: [(&'static str, Box<dyn gpui::Action>); 3] =
             [("config.toml", Box::new(qur::OpenConfig)), ("keymap.toml", Box::new(qur::OpenKeymap)), ("agents.toml", Box::new(qur::OpenAgents))];
         section(look, "Files")
-            .child(div().mb(look.z(6.)).text_size(look.text(-2.)).text_color(look.c(ui.text_muted)).child("Everything here is saved in these files, in ~/Library/Application Support/Qur."))
+            .child(div().mb(look.z(6.)).text_size(look.text(-2.)).text_color(look.c(ui.text_muted)).child(if cfg!(target_os = "macos") { "Everything here is saved in these files, in ~/Library/Application Support/Qur." } else { "Everything here is saved in these files, in ~/.local/share/qur." }))
             .child(div().flex().gap(look.z(16.)).children(files.into_iter().map(|(name, action)| {
                 link(look, SharedString::from(format!("file-{name}")), format!("Open {name}"))
                     .relative()
