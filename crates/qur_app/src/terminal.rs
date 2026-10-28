@@ -1131,7 +1131,7 @@ impl TerminalPanel {
         {
             self.focus_pane(id, cx);
         }
-        if ev.modifiers.platform && self.open_link_at(ev.position, cx) {
+        if ev.modifiers.secondary(cx) && self.open_link_at(ev.position, cx) {
             return;
         }
         if let Some(s) = self.sessions.get(self.active) {
@@ -2046,6 +2046,13 @@ fn foreground_name(pid: i32) -> Option<String> {
 }
 
 /// The folder process `pid` is in (a shell's, after its last `cd`).
+#[cfg(target_os = "linux")]
+pub fn cwd_of(pid: i32) -> Option<PathBuf> {
+    std::fs::read_link(format!("/proc/{pid}/cwd")).ok()
+}
+
+/// The folder process `pid` is in (a shell's, after its last `cd`).
+#[cfg(target_os = "macos")]
 pub fn cwd_of(pid: i32) -> Option<PathBuf> {
     use std::os::unix::ffi::OsStrExt;
     let mut info: libc::proc_vnodepathinfo = unsafe { std::mem::zeroed() };

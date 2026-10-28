@@ -301,7 +301,7 @@ impl Render for GitPanel {
                         })),
                 )
                 .on_click(cx.listener(move |p, ev: &gpui::ClickEvent, _, cx| {
-                    if ev.modifiers().platform {
+                    if ev.modifiers().secondary(cx) {
                         cx.emit(GitEvent::Open(p.root.join(&p2)));
                     } else {
                         p.select(p3.clone(), staged, cx);

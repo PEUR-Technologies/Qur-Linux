@@ -122,4 +122,16 @@ fn set_badge(label: Option<String>) {
         let tile = NSApplication::sharedApplication(mtm).dockTile();
         tile.setBadgeLabel(label.map(|l| NSString::from_str(&l)).as_deref());
     }
+    // Linux: the Unity LauncherEntry signal (KDE, Dash to Dock, Plank show it as a count).
+    #[cfg(target_os = "linux")]
+    {
+        let n: i64 = label.as_deref().and_then(|l| l.parse().ok()).unwrap_or(0);
+        let props = format!("{{'count': <int64 {n}>, 'count-visible': <{}>}}", n > 0);
+        let _ = std::process::Command::new("gdbus")
+            .args(["emit", "--session", "--object-path", "/dev/qur/launcherentry", "--signal", "com.canonical.Unity.LauncherEntry.Update", "application://qur.desktop", &props])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .map(|mut c| std::thread::spawn(move || c.wait()));
+    }
 }

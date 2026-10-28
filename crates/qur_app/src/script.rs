@@ -263,22 +263,29 @@ pub fn run(handle: AnyWindowHandle, list: &str, cx: &mut App) {
                 Step::Keys(keys) => {
                     println!("INPUT key {keys} t={t}ms");
                     for k in keys.split_whitespace() {
-                        match Keystroke::parse_with_os(k, OperatingSystem::Mac) {
-                            Ok(ks) => {
-                                let _ = handle.update(cx, |_, window, cx| {
-                                    fresh(window, cx);
+                        let _ = handle.update(cx, |_, window, cx| {
+                            fresh(window, cx);
+                            // Scripts are written with Mac keys; press what a Linux user would.
+                            #[cfg(target_os = "linux")]
+                            let k = &{
+                                let stack = window.context_stack();
+                                let focused = stack.iter().rev().find_map(|c| ["Terminal", "Editor", "TextInput"].into_iter().find(|n| c.contains(n)));
+                                crate::commands::linux_pressed(k, focused)
+                            };
+                            match Keystroke::parse_with_os(k, if cfg!(target_os = "linux") { OperatingSystem::Linux } else { OperatingSystem::Mac }) {
+                                Ok(ks) => {
                                     window.dispatch_keystroke(ks, cx);
-                                });
+                                }
+                                Err(e) => eprintln!("QUR_DEBUG_ACTIONS: key {k}: {e}"),
                             }
-                            Err(e) => eprintln!("QUR_DEBUG_ACTIONS: key {k}: {e}"),
-                        }
+                        });
                         pause(30).await;
                     }
                 }
                 Step::Click { at, button, count, cmd } => {
                     let Some(pos) = resolve(handle, cx, &at) else { continue };
                     println!("INPUT click {at:?} at {:.0},{:.0} {button:?} x{count}{} t={t}ms", f32::from(pos.x), f32::from(pos.y), if cmd { " cmd" } else { "" });
-                    let modifiers = Modifiers { platform: cmd, ..Default::default() };
+                    let modifiers = if cmd { handle.update(cx, |_, _, cx| Modifiers::secondary_key(cx)).unwrap_or_default() } else { Modifiers::default() };
                     mouse(handle, cx, PlatformInput::MouseMove(MouseMoveEvent { position: pos, pressed_button: None, modifiers }));
                     pause(30).await;
                     for n in 1..=count {

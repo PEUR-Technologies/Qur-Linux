@@ -604,7 +604,7 @@ impl Render for ChangesView {
                                         .w_full()
                                         .cursor_pointer()
                                         .on_click(cx.listener(move |v, ev: &gpui::ClickEvent, _, cx| {
-                                            if ev.modifiers().platform {
+                                            if ev.modifiers().secondary(cx) {
                                                 cx.emit(ChangesEvent::Open(path.clone(), None));
                                             } else if !v.collapsed.remove(&f) {
                                                 v.collapsed.insert(f);
@@ -622,7 +622,7 @@ impl Render for ChangesView {
                                         .cursor_pointer()
                                         .hover(|d| d.opacity(0.85))
                                         .on_click(cx.listener(move |v, ev: &gpui::ClickEvent, window, cx| {
-                                            if ev.modifiers().platform {
+                                            if ev.modifiers().secondary(cx) {
                                                 cx.emit(ChangesEvent::Open(path.clone(), line_no));
                                             } else {
                                                 v.start_comment((f, h, l), window, cx);

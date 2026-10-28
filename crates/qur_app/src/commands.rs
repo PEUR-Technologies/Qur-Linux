@@ -667,6 +667,18 @@ fn global_shift_keys() -> &'static std::collections::HashSet<String> {
     })
 }
 
+/// A scripted macOS keystroke as a Linux user presses it with `focused` (the
+/// innermost of Terminal / Editor / TextInput, if any) holding the keyboard:
+/// the same rules as the bindings, Ctrl+Shift for Cmd keys in a terminal.
+pub fn linux_pressed(stroke: &str, focused: Option<&str>) -> String {
+    let plain = linux_stroke(stroke, text_context(focused));
+    let ctrl_only = plain.starts_with("ctrl-") && !plain.contains("shift") && !plain.contains("alt");
+    if focused == Some("Terminal") && split_stroke(stroke).0.contains(&"cmd") && ctrl_only {
+        return plain.replacen("ctrl-", "ctrl-shift-", 1);
+    }
+    plain
+}
+
 /// The Linux bindings for one macOS key string in `ctx`: (keys, context).
 fn linux_bindings(keys: &str, ctx: Option<&str>) -> Vec<(String, Option<String>)> {
     let plain = linux_keys(keys, ctx);
@@ -1243,6 +1255,8 @@ mod tests {
         assert_eq!(linux_keys("cmd-left", E), "home");
         assert_eq!(linux_keys("cmd-shift-down", E), "ctrl-shift-end");
         assert_eq!(linux_keys("alt-left", E), "ctrl-left");
+        assert_eq!(linux_pressed("cmd-d", Some("Terminal")), "ctrl-shift-d");
+        assert_eq!(linux_pressed("cmd-,", None), "ctrl-,");
         assert_eq!(linux_keys("alt-shift-right", I), "ctrl-shift-right");
         assert_eq!(linux_keys("cmd-left", B), "alt-left");
         assert_eq!(linux_keys("ctrl-cmd-f", None), "f11");

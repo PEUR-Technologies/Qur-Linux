@@ -143,7 +143,7 @@ impl BrowserPane {
             // SAFETY: GPUI's window outlives this pane; the view pointer is valid on the main thread.
             unsafe { Browser::new(h.ns_view.as_ptr()) }
         };
-        // Linux: no embedded view; pages open in the default browser.
+        // Linux: the page lives in a WebKitGTK helper window (see qur_browser's linux.rs).
         #[cfg(not(target_os = "macos"))]
         let (web, mut events) = {
             let _ = window;
@@ -213,13 +213,14 @@ impl BrowserPane {
         let label: SharedString = element_label(&p).into();
         let context = element_context(&p);
         let Some(web) = &self.web else { return };
-        let this = cx.weak_entity();
-        let mut async_cx = cx.to_async();
-        web.snapshot(Some(p.rect), move |png| {
-            let _ = this.update(&mut async_cx, |_, cx| {
-                cx.emit(BrowserPaneEvent::Attach(Attachment::pick(label, context, png)));
-            });
-        });
+        // The shot may arrive inside this update (Linux answers at once): emit from a task.
+        let (tx, rx) = futures::channel::oneshot::channel();
+        web.snapshot(Some(p.rect), move |png| drop(tx.send(png)));
+        cx.spawn(async move |this, cx| {
+            let png = rx.await.ok().flatten();
+            let _ = this.update(cx, |_, cx| cx.emit(BrowserPaneEvent::Attach(Attachment::pick(label, context, png))));
+        })
+        .detach();
     }
 
     /// Go to `url` now if the page is loaded, else when it's next shown
@@ -444,12 +445,8 @@ impl Render for BrowserPane {
                         .text_color(look.c(ui.text_muted))
                         .child(match (&self.error, &self.home) {
                             (Some(e), _) => e.clone(),
-                            #[cfg(target_os = "macos")]
                             (None, None) => "Type your dev server's address above (e.g. localhost:3000), then Inspect to point at things.".into(),
-                            #[cfg(target_os = "macos")]
                             (None, Some(_)) => "Loading…".into(),
-                            #[cfg(not(target_os = "macos"))]
-                            (None, _) => format!("Type your dev server's address above (e.g. localhost:3000). {}", qur_browser::NO_EMBED),
                         }),
                 )
             });

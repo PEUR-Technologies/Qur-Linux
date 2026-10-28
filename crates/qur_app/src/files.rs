@@ -132,9 +132,22 @@ fn image_in(pb: &objc2_app_kit::NSPasteboard, read: bool) -> Option<Vec<u8>> {
     present.find_map(|t| pb.dataForType(t).map(|d| d.to_vec()).filter(|b| !b.is_empty()))
 }
 
+/// Linux: the clipboard through `wl-paste` (Wayland) or `xclip` (X11).
 #[cfg(not(target_os = "macos"))]
-fn pasteboard_image(_read: bool) -> Option<Vec<u8>> {
-    None
+fn pasteboard_image(read: bool) -> Option<Vec<u8>> {
+    use std::process::Command;
+    let wayland = std::env::var_os("WAYLAND_DISPLAY").is_some();
+    let run = |args: &[&str]| -> Option<Vec<u8>> {
+        let (cmd, base): (&str, &[&str]) = if wayland { ("wl-paste", &["--no-newline"]) } else { ("xclip", &["-selection", "clipboard", "-o"]) };
+        let out = Command::new(cmd).args(base).args(args).stderr(std::process::Stdio::null()).output().ok()?;
+        out.status.success().then_some(out.stdout)
+    };
+    let types = String::from_utf8(run(if wayland { &["--list-types"] } else { &["-t", "TARGETS"] })?).ok()?;
+    let ty = ["image/png", "image/jpeg", "image/tiff"].into_iter().find(|t| types.lines().any(|l| l.trim() == *t))?;
+    if !read {
+        return Some(Vec::new());
+    }
+    run(&[if wayland { "--type" } else { "-t" }, ty]).filter(|b| !b.is_empty())
 }
 
 /// Image bytes decoded to fit `max_w` × `max_h` pixels (never scaled up),

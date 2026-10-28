@@ -232,7 +232,7 @@ impl HexView {
     fn on_key(&mut self, ev: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
         let k = &ev.keystroke;
         let page = self.metrics.page() as u64;
-        let top = match (k.key.as_str(), k.modifiers.platform) {
+        let top = match (k.key.as_str(), k.modifiers.secondary(cx)) {
             ("up", false) => self.top.saturating_sub(1),
             ("down", false) => self.top + 1,
             ("pageup", _) => self.top.saturating_sub(page),

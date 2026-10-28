@@ -92,7 +92,15 @@ impl Workspace {
         false
     }
 
-    pub(super) fn hide(&mut self, _: &qur::Hide, _: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn hide(&mut self, _: &qur::Hide, window: &mut Window, cx: &mut Context<Self>) {
+        // Linux compositors have no app hiding; minimizing is the nearest thing.
+        #[cfg(target_os = "linux")]
+        let _ = cx;
+        #[cfg(target_os = "linux")]
+        window.minimize_window();
+        #[cfg(not(target_os = "linux"))]
+        let _ = window;
+        #[cfg(not(target_os = "linux"))]
         cx.hide()
     }
     pub(super) fn hide_others(&mut self, _: &qur::HideOthers, _: &mut Window, cx: &mut Context<Self>) {

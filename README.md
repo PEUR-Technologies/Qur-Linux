@@ -2,7 +2,9 @@
 
 **See what your agents see.** A native macOS editor for running AI coding agents: each one gets its own worktree, and the file tree lights up as it works.
 
-Rust + GPUI · no Electron · runs locally · uses your Claude Code or Codex login, not an API key · pre-release 0.1, macOS only
+Rust + GPUI · no Electron · runs locally · uses your Claude Code or Codex login, not an API key · pre-release 0.1, macOS and Linux
+
+**Linux** (Wayland and X11): build, install and what differs from macOS are in [LINUX_PORT.md](LINUX_PORT.md). `scripts/bundle-linux.sh --install` builds it and adds Qur to your launcher.
 
 ![Live heatmap: files glow as the agent writes them; Live follows the file](docs/images/heatmap-live.png)
 

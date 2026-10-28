@@ -1,7 +1,7 @@
 //! Embedded system WKWebView for Qur's Browser view, with an element-inspect mode.
 //!
-//! macOS embeds WKWebView. On Linux, `Browser` has the same API but opens pages in the
-//! default browser (see `linux.rs`); elsewhere only the event types and helpers exist.
+//! macOS embeds WKWebView. On Linux, `Browser` has the same API and drives a WebKitGTK
+//! helper window (see `linux.rs`); elsewhere only the event types and helpers exist.
 //!
 //! Everything here is main-thread only (AppKit). Events leave through an unbounded
 //! `futures` channel; there is no async runtime.
@@ -22,4 +22,4 @@ pub use mac::Browser;
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "linux")]
-pub use linux::{Browser, NO_EMBED};
+pub use linux::Browser;
