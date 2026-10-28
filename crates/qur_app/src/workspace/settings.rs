@@ -420,6 +420,7 @@ fn accent_for(def: &AgentDef, slot: &qur_theme::Accent) -> Rgba {
 
 /// SF Mono when installed (Xcode, Terminal), else Menlo; nothing extra ships.
 /// A direct lookup (listing every font costs ~40 ms at startup).
+#[cfg(target_os = "macos")]
 fn default_code_font(cx: &App) -> String {
     static FOUND: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     let sf = *FOUND.get_or_init(|| {
@@ -427,7 +428,27 @@ fn default_code_font(cx: &App) -> String {
         let id = ts.resolve_font(&gpui::font("SF Mono"));
         ts.get_font_for_id(id).is_some_and(|f| f.family.as_ref() == "SF Mono")
     });
-    if sf { "SF Mono".into() } else { "Menlo".into() }
+    if sf { "SF Mono".into() } else { crate::assets::CODE_FONT.into() }
+}
+
+/// Linux has no Menlo; DejaVu Sans Mono is what Menlo was cut from. A fallback with a different advance puts the
+/// terminal cursor off the text: take the first mono family that resolves.
+#[cfg(not(target_os = "macos"))]
+fn default_code_font(cx: &App) -> String {
+    static FOUND: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    FOUND
+        .get_or_init(|| {
+            let ts = cx.text_system();
+            ["DejaVu Sans Mono", "Noto Sans Mono", "Liberation Mono"]
+                .into_iter()
+                .find(|name| {
+                    let id = ts.resolve_font(&gpui::font(*name));
+                    ts.get_font_for_id(id).is_some_and(|f| f.family.as_ref() == *name)
+                })
+                .unwrap_or("monospace")
+                .to_string()
+        })
+        .clone()
 }
 
 const CONFIG_TEMPLATE: &str = r#"# Qur settings. Saved changes apply right away.

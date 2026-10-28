@@ -33,6 +33,11 @@ pub static FONTS: &[&[u8]] = &[
 ];
 
 pub const UI_FONT: &str = "Inter";
+/// Menlo on macOS; on Linux DejaVu Sans Mono, the font Menlo was cut from.
+#[cfg(target_os = "macos")]
+pub const CODE_FONT: &str = "Menlo";
+#[cfg(not(target_os = "macos"))]
+pub const CODE_FONT: &str = "DejaVu Sans Mono";
 
 pub struct Assets;
 

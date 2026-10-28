@@ -80,7 +80,7 @@ impl Look {
             opacity: 1.0,
             blur: false,
             ui_font: crate::assets::UI_FONT.into(),
-            code_font: "Menlo".into(),
+            code_font: crate::assets::CODE_FONT.into(),
             ui_size: 13.0,
             code_size: 13.0,
             line_height: 1.5,

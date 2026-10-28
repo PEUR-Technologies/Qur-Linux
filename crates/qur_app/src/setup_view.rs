@@ -1285,7 +1285,7 @@ mod tests {
             opacity: 1.0,
             blur: false,
             ui_font: "Inter".into(),
-            code_font: "Menlo".into(),
+            code_font: crate::assets::CODE_FONT.into(),
             ui_size: 13.,
             code_size: 13.,
             line_height: 1.5,
