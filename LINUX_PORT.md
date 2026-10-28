@@ -35,6 +35,7 @@ CARGO_BUILD_JOBS=2 RUSTFLAGS="-C link-arg=-fuse-ld=mold" scripts/bundle-linux.sh
 | Paste images / copied files into a terminal | NSPasteboard | `wl-paste` (Wayland) or `xclip` (X11): PNG, JPEG, TIFF |
 | Cmd-click (terminal links, Git and Changes rows), Cmd+arrows in large/hex views | Cmd | Ctrl (GPUI `secondary()`) |
 | Hide (Cmd+H) | hides the app | minimizes the window |
+| Global show/hide key (`[keys] global`, default Cmd+\\) | Carbon hot key | on Hyprland a compositor bind Qur registers itself (Cmd is Super: Super+\\); hides to a special workspace, brings it back to the current one. Other desktops: bind it in their own shortcut settings. Runtime-only: `hyprctl reload` drops it until Qur restarts |
 | Free memory after big decodes | `malloc_zone_pressure_relief` | glibc `malloc_trim(0)` |
 | `qur doctor`, crash reports | macOS version | `/etc/os-release` |
 | File watcher | FSEvents | inotify (notify's Linux backend, no change needed) |
@@ -42,9 +43,9 @@ CARGO_BUILD_JOBS=2 RUSTFLAGS="-C link-arg=-fuse-ld=mold" scripts/bundle-linux.sh
 ## Tested
 
 - `cargo clippy --workspace --all-targets -- -D warnings`: clean.
-- `cargo test --release --workspace --no-fail-fast`: all pass (qur_app 119, qur_browser incl. the helper protocol tests). `qur_syntax::bench_large_ts` gets twice the Apple-silicon time budget off macOS. Needs `python3 spikes/fixtures/gen.py` first.
+- `cargo test --release --workspace --no-fail-fast`: all pass on v0.1.9 (qur_app 122, qur_browser incl. the helper protocol tests). `qur_syntax::bench_large_ts` gets twice the Apple-silicon time budget off macOS. Needs `python3 spikes/fixtures/gen.py` first.
 - `cargo build --release -p qur_app`: about 50 MB (macOS: 25 MB; the Linux GPUI backend pulls in Wayland, X11, Vulkan and zbus).
-- `scripts/handcheck.sh` (the scripted UI checks; the driver now presses the Linux keys a user would): 111 of 125 pass on Hyprland with Qur floated at 1400x1000 (`hyprctl keyword windowrule "float on, size 1400 1000, match:class ^qur$"`; a small tiled window puts the clicks off-window) and `SHELL=/bin/bash` (a zsh setup wizard eats the typed commands). The rest are not Linux bugs:
+- `scripts/handcheck.sh` (the scripted UI checks; the driver now presses the Linux keys a user would): 111 of 125 passed on v0.1.8 (not rerun on v0.1.9, which also updated the empty-window checks) on Hyprland with Qur floated at 1400x1000 (`hyprctl keyword windowrule "float on, size 1400 1000, match:class ^qur$"`; a small tiled window puts the clicks off-window) and `SHELL=/bin/bash` (a zsh setup wizard eats the typed commands). The rest are not Linux bugs:
   - `empty_window`, `empty_recent` (8): stale since v0.1.8, which opens a shell when Qur starts without a path; they fail on macOS too.
   - `cleanup` (3-5): the test backdates worktrees with `touch -t`, which on macOS also moves a file's birth time; Linux can't, so the worktrees stay "new" and aren't preselected (the grace period working as meant).
 - Browser, with the fake ACP agent (`target/release/qur-fake-agent` as an `acp` agent, `QUR_DEBUG_BROWSER_URL`, `QUR_DEBUG_PICK`): the page loads over the pane, Inspect outlines the element, the pick and its snapshot land in the prompt; the approval notification and badge fire.

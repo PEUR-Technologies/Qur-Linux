@@ -487,11 +487,16 @@ mod tests {
         // A task with no commits of its own: refused before pushing.
         let empty = d.join("empty");
         sh(&root, &["worktree", "add", "-q", "-b", "qur/test/empty", empty.to_str().unwrap()]);
-        let e = commit_and_push(&root, &empty, "qur/test/empty", "Empty", &[], "/usr/bin:/bin").err().unwrap();
+        // A PATH with git and no gh (Linux distros put gh in /usr/bin).
+        let bin = d.join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        std::os::unix::fs::symlink("/usr/bin/git", bin.join("git")).unwrap();
+        let no_gh = bin.to_str().unwrap();
+        let e = commit_and_push(&root, &empty, "qur/test/empty", "Empty", &[], no_gh).err().unwrap();
         assert!(e.starts_with("Nothing to push"), "{e}");
         // No gh, a non-GitHub remote: pushed only.
-        let p = commit_and_push(&root, &wt, "qur/test/fix", "Fix", &[], "/usr/bin:/bin").unwrap();
-        assert_eq!(open(&wt, &p, "/usr/bin:/bin").unwrap(), Opened::PushedOnly);
+        let p = commit_and_push(&root, &wt, "qur/test/fix", "Fix", &[], no_gh).unwrap();
+        assert_eq!(open(&wt, &p, no_gh).unwrap(), Opened::PushedOnly);
         // gh signed out, a github.com remote: the compare page (no push here).
         let (path, log) = fake_gh(&d, 1);
         let gh_remote = Pushed { target: Target { url: "git@github.com:acme/proj.git".into(), ..p.target.clone() }, ..p.clone() };
@@ -500,11 +505,11 @@ mod tests {
         // A rejected push shows git's error.
         std::fs::write(wt.join("c.txt"), "c\n").unwrap();
         sh(&root, &["remote", "set-url", "origin", d.join("missing.git").to_str().unwrap()]);
-        let e = commit_and_push(&root, &wt, "qur/test/fix", "Fix", &[], "/usr/bin:/bin").err().unwrap();
+        let e = commit_and_push(&root, &wt, "qur/test/fix", "Fix", &[], no_gh).err().unwrap();
         assert!(e.starts_with("git push failed:") && e.contains("missing.git"), "{e}");
         // No remote at all.
         sh(&root, &["remote", "remove", "origin"]);
-        let e = target(&root, "/usr/bin:/bin").err().unwrap();
+        let e = target(&root, no_gh).err().unwrap();
         assert!(e.starts_with("No remote to push to"), "{e}");
         let _ = std::fs::remove_dir_all(&d);
     }

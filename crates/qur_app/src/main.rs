@@ -19,6 +19,10 @@ mod editor_view;
 mod files;
 mod git_panel;
 mod grid;
+#[cfg(target_os = "macos")]
+mod hotkey;
+#[cfg(target_os = "linux")]
+#[path = "hotkey_linux.rs"]
 mod hotkey;
 mod hex_view;
 mod input;
